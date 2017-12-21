@@ -14,6 +14,8 @@ var ConeGeometry = new THREE.ConeGeometry(1, 1);
 
 var clock = new THREE.Clock();
 
+export var windowResPow2 = { innerWidth: 1024, innerHeight: 1024 };
+
 window.addEventListener('load', function() {
     var stats = new Stats();
     stats.setMode(1);
@@ -23,10 +25,10 @@ window.addEventListener('load', function() {
     document.body.appendChild(stats.domElement);
 
     var scene = new THREE.Scene();
-    var camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 1000 );
+    var camera = new THREE.PerspectiveCamera( 75, windowResPow2.innerWidth/windowResPow2.innerHeight, 0.1, 1000 );
     var renderer = new THREE.WebGLRenderer( { antialias: true } );
     renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(windowResPow2.innerWidth, windowResPow2.innerHeight);
     renderer.setClearColor(0x999999, 1.0);
     document.body.appendChild(renderer.domElement);
 
@@ -38,9 +40,9 @@ window.addEventListener('load', function() {
     controls.panSpeed = 2.0;
 
     window.addEventListener('resize', function() {
-        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.aspect = windowResPow2.innerWidth / windowResPow2.innerHeight;
         camera.updateProjectionMatrix();
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setSize(windowResPow2.innerWidth, windowResPow2.innerHeight);
     });
 
     scene.add(new THREE.AxisHelper(20));
@@ -70,8 +72,7 @@ window.addEventListener('load', function() {
     (function tick() {
         controls.update();
         stats.begin();
-        proxyGeometry.update();
-        rayMarcher.render(proxyGeometry.buffer, clock);
+        rayMarcher.render(clock);
         stats.end();
         requestAnimationFrame(tick);
     })();
