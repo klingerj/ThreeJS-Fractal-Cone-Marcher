@@ -14,7 +14,8 @@ var ConeGeometry = new THREE.ConeGeometry(1, 1);
 
 var clock = new THREE.Clock();
 
-export var windowResPow2 = { innerWidth: 1024, innerHeight: 1024 };
+var squareRes = 1024;
+export var windowResPow2 = { innerWidth: squareRes, innerHeight: squareRes };
 
 window.addEventListener('load', function() {
     var stats = new Stats();
