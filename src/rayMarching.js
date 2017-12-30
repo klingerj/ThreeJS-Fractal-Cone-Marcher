@@ -241,6 +241,10 @@ export default function RayMarcher(renderer, scene, camera) {
             u_pass_counter: {
                 type: 'i',
                 value: 0
+            },
+            u_fractal_type: {
+                type: 'i',
+                value: 0
             }
         },
         vertexShader: require('./glsl/pass-vert.glsl'),
@@ -281,6 +285,10 @@ export default function RayMarcher(renderer, scene, camera) {
             u_pass_counter: {
                 type: 'i',
                 value: 1
+            },
+            u_fractal_type: {
+                type: 'i',
+                value: 0
             }
         },
         vertexShader: require('./glsl/pass-vert.glsl'),
@@ -321,6 +329,10 @@ export default function RayMarcher(renderer, scene, camera) {
             u_pass_counter: {
                 type: 'i',
                 value: 2
+            },
+            u_fractal_type: {
+                type: 'i',
+                value: 0
             }
         },
         vertexShader: require('./glsl/pass-vert.glsl'),
@@ -348,7 +360,7 @@ export default function RayMarcher(renderer, scene, camera) {
     conemarchPass8.renderToScreen = true;
 
     return {
-        render: function(clock, camera) {
+        render: function(clock, camera, options) {
             var time = clock.getElapsedTime();
 
             // Create view matrix
@@ -381,14 +393,24 @@ export default function RayMarcher(renderer, scene, camera) {
             conemarchPass5.uniforms["u_time"].value = time;
             conemarchPass5.uniforms["u_camera_view"].value = cameraView;*/
 
+            var fractalType;
+
+            switch(options.FractalType) {
+                case 'Mandelbulb': fractalType = 0; break;
+                case 'Menger Sponge': fractalType = 1; break;
+            }
+
             conemarchPass6.uniforms["u_time"].value = time;
             conemarchPass6.uniforms["u_camera_view"].value = cameraView;
+            conemarchPass6.uniforms["u_fractal_type"].value = fractalType;
 
             conemarchPass7.uniforms["u_time"].value = time;
             conemarchPass7.uniforms["u_camera_view"].value = cameraView;
+            conemarchPass7.uniforms["u_fractal_type"].value = fractalType;
 
             conemarchPass8.uniforms["u_time"].value = time;
             conemarchPass8.uniforms["u_camera_view"].value = cameraView;
+            conemarchPass8.uniforms["u_fractal_type"].value = fractalType;
             
             //composer1.render();
             //composer2.render();

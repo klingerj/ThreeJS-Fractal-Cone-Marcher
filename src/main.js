@@ -68,13 +68,21 @@ window.addEventListener('load', function() {
     camera.position.set(0, 0, -5);
     camera.lookAt(new THREE.Vector3(0,0,0));
     controls.target.set(0,0,0);
+
+    var gui = new DAT.GUI();
+
+    var options = {
+        FractalType: 'Mandelbulb'
+    }
+
+    gui.add(options, 'FractalType', ['Mandelbulb', 'Menger Sponge']);
     
     var rayMarcher = new RayMarcher(renderer, scene, camera);
 
     (function tick() {
         controls.update();
         stats.begin();
-        rayMarcher.render(clock, camera);
+        rayMarcher.render(clock, camera, options);
         stats.end();
         requestAnimationFrame(tick);
     })();

@@ -1,14 +1,37 @@
 #define T_MAX 15.0
 
+/// Varying(s)
+
+// UVs
 varying vec2 f_uv;
 
+/// Uniforms
+
+// Growing time variable
 uniform float u_time;
+
+// Render target resolution
 uniform vec2 u_resolution;
+
+// Render target aspect ratio
 uniform float u_aspect;
+
+// Tan(fovy / 2) of the camera
 uniform float u_tan_fovy_over2;
+
+// Texture containing the information from the previous conemarch, if available
 uniform sampler2D u_previous_conemarch;
+
+// Camera view information
 uniform mat4 u_camera_view;
+
+// Which render pass this is
 uniform int u_pass_counter;
+
+// Type of fractal sdf to use
+uniform int u_fractal_type;
+
+/// Defines
 
 #define NUM_CONEMARCH_ITERATIONS 50
 #define NUM_RAYMARCH_ITERATIONS 90
@@ -16,9 +39,6 @@ uniform int u_pass_counter;
 #define FINAL_PASS 2 // number of render passes - 1
 
 #define LIGHT_VEC normalize(vec3(1.0, 1.0, 1.0))
-
-//#define MANDELBULB
-#define MENGER
 
 vec4 resColor;
 
@@ -112,14 +132,18 @@ float SDF_Mandelbulb( in vec3 p, inout vec4 trap )
     return 0.25 * log(m) * sqrt(m) / dz;
 }
 
-#ifdef MENGER
-
+/*
 #define MENGER_ROT1 fromAngleAxis(normalize(vec3(cos(u_time * 0.5 + 1.0), sin(u_time * 0.75 + 0.1), sin(u_time * 0.35 + 0.3))), 32.0)
 #define MENGER_ROT2 fromAngleAxis(normalize(vec3(sin(u_time * 0.25), cos(u_time * 0.15), cos(u_time * 0.15 + 2.0))), 7.0)
+*/
 
 vec3 SDF_MengerSponge( in vec3 p, inout float trap )
 {
 	float d = SDF_Box(p, vec3(1.0));
+
+	if(d > 0.5) {
+		return vec3(d, 0.0, 0.0);
+	}
 
 	float s = 1.0;
 	for(int m = 0; m < 2; ++m)
@@ -147,30 +171,23 @@ vec3 SDF_MengerSponge( in vec3 p, inout float trap )
    return vec3(d, 1.0, 1.0);
 }
 
-#endif
-
 // Return the distance of the closest object in the scene
 vec2 SceneMap( in vec3 pos ) {
-	#ifdef MANDELBULB
-	vec4 orbitTrap = vec4(0.0);
-	//return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
+	if(u_fractal_type == 0) {
+		vec4 orbitTrap = vec4(0.0);
 
-	// WHY DOES THIS MAKE A DIFFERENCE
-	float boundingSphere = SDF_Sphere(pos, 1.15); // Bound the mandelbulb in a sphere. The radius was visually chosen. 1.15 is good
-	//float boundingBox = SDF_Box(pos, vec3(1.0)); // 1.1 is good
+		float boundingSphere = SDF_Sphere(pos, 1.15); // Bound the mandelbulb in a sphere. The radius was visually chosen. 1.15 is good
 
-	if(boundingSphere < 0.7) {
-		return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
-	} else {
-		return vec2(boundingSphere, 0.0);
+		if(boundingSphere < 0.7) {
+			return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
+		} else {
+			return vec2(boundingSphere, 0.0);
+		}
+	} else if(u_fractal_type == 1) {
+		float orbit;
+		vec3 result = SDF_MengerSponge(pos, orbit);
+		return vec2(result.x, orbit);
 	}
-	#endif
-
-	#ifdef MENGER
-	float orbit;
-	vec3 result = SDF_MengerSponge(pos, orbit);
-	return vec2(result.x, orbit);
-	#endif
 }
 
 // Marching Functions
@@ -284,12 +301,12 @@ void main() {
 	}
 
 	vec2 scrPt = f_uv * 2.0 - 1.0;
-	vec3 cameraPos = vec3(u_camera_view[0][3], u_camera_view[1][3], u_camera_view[2][3]); //normalize(vec3(cos(u_time * 0.5), sin(u_time * 0.125), sin(u_time * 0.5))) * 4.0 * (sin(u_time * 0.25) * 0.5 + 1.5);
+	vec3 cameraPos = vec3(u_camera_view[0][3], u_camera_view[1][3], u_camera_view[2][3]);
 
 	// Unpack camera vectors
-	vec3 camLook = vec3(u_camera_view[0][0], u_camera_view[0][1], u_camera_view[0][2]); //refPoint - cameraPos;
-	vec3 camRight = -vec3(u_camera_view[2][0], u_camera_view[2][1], u_camera_view[2][2]); //normalize(cross(camLook, vec3(0, 1, 0)));
-	vec3 camUp = -vec3(u_camera_view[1][0], u_camera_view[1][1], u_camera_view[1][2]);    //-normalize(cross(camLook, camRight));
+	vec3 camLook = vec3(u_camera_view[0][0], u_camera_view[0][1], u_camera_view[0][2]);
+	vec3 camRight = -vec3(u_camera_view[2][0], u_camera_view[2][1], u_camera_view[2][2]);
+	vec3 camUp = -vec3(u_camera_view[1][0], u_camera_view[1][1], u_camera_view[1][2]);
 
 	vec3 horzVec = camRight * u_tan_fovy_over2 * u_aspect;
 	vec3 vertVec = camUp * u_tan_fovy_over2;
@@ -331,42 +348,31 @@ void main() {
 
 			vec3 normal;
 
-			if(f_uv.x < 0.33) {
-				// Ao
+			if(f_uv.x < 0.33) { // Ao
 				normal = ComputeNormal(isectPos);
 				float ao = ComputeAO(isectPos, normal);
 				color = vec3(ao);
-			} else if(f_uv.x < 0.67) {
-				// Normal
+			} else if(f_uv.x < 0.67) { // Normal
 				normal = ComputeNormal(isectPos);
 				color = normal;
-			} else if(f_uv.x <= 1.0) {
-				// Orbit trap
-				#ifdef MENGER
-				float colorInput = result.z;
-				colorInput = pow(abs(colorInput), 0.5);
-				color = cosinePalette(colorInput);
-				#else
-				
-				#ifdef MANDELBULB
-				float colorInput = resColor.x;
+			} else if(f_uv.x <= 1.0) { // Orbit trap
+				if(u_fractal_type == 1) {
+					float colorInput = result.z;
+					colorInput = pow(abs(colorInput), 0.5);
+					color = cosinePalette(colorInput);
+				} else if(u_fractal_type == 0) {
+					float colorInput = resColor.x;
+					colorInput = pow(abs(resColor.x), 0.01);
 
-				colorInput = pow(abs(resColor.x), 0.01);
-				color = mix(resColor.xyz, vec3(0.2, 0.5, 0.75), colorInput);
-				color = pow(color, vec3(1.999));
-				color *= 2.0;
+					color = mix(resColor.xyz, vec3(0.2, 0.5, 0.75), colorInput);
+					color = pow(color, vec3(1.999));
+					color *= 2.0;
 
-				color.r *= (0.5 * cos(u_time) + 0.5) * 4.0;
-				color.g *= (0.5 * sin(u_time * 0.5 + 1.0) + 0.5) * 1.0;
-				color.b *= (0.5 * sin(u_time * 0.125) + 0.5) * 1.0;
-				#endif
-
-				#endif
+					color.r *= (0.5 * cos(u_time) + 0.5) * 4.0;
+					color.g *= (0.5 * sin(u_time * 0.5 + 1.0) + 0.5) * 1.0;
+					color.b *= (0.5 * sin(u_time * 0.125) + 0.5) * 1.0;
+				}
 			}
-
-			// Fog?
-			//vec3 fogColor = vec3(0.1, 0.12, 0.2);
-			//color = mix(color, fogColor, exp(-0.04 * result.x));
 
 			gl_FragColor = vec4(color, 1.0);
 
@@ -379,7 +385,6 @@ void main() {
 		}
 	} else { // we either missed or missed in a previous iteration
 		if(u_pass_counter == FINAL_PASS) { // final pass so shade the background color
-			//gl_FragColor = vec4(vec3(numIterations / float(NUM_RAYMARCH_ITERATIONS)), 1.0);
 			gl_FragColor = vec4(0.2, 0.3, 0.4, 1.0);
 		} else { // write t-value info
 			gl_FragColor = vec4(0.0, 0.0, result.y, result.x); // write the marched t-value to the texture's alpha channel
