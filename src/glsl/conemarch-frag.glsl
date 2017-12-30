@@ -7,16 +7,20 @@ uniform vec2 u_resolution;
 uniform float u_aspect;
 uniform float u_tan_fovy_over2;
 uniform sampler2D u_previous_conemarch;
-uniform int u_is_first_pass;
-uniform int u_is_final_pass;
+uniform mat4 u_camera_view;
+uniform int u_pass_counter;
 
-#define NUM_CONEMARCH_ITERATIONS 1000
-#define NUM_RAYMARCH_ITERATIONS 10000
+#define NUM_CONEMARCH_ITERATIONS 50
+#define NUM_RAYMARCH_ITERATIONS 90
+
+#define FINAL_PASS 2 // number of render passes - 1
 
 #define LIGHT_VEC normalize(vec3(1.0, 1.0, 1.0))
 
-#define MANDELBULB
-//#define MENGER
+//#define MANDELBULB
+#define MENGER
+
+vec4 resColor;
 
 mat3 fromAngleAxis( in vec3 angle, in float angleRad ) {
     float cost = cos(angleRad);
@@ -57,7 +61,7 @@ float SDF_Box( in vec3 p, in vec3 b ) {
   return min(max(d.x, max(d.y, d.z)), 0.0) + length(max(d, 0.0));
 }
 
-float SDF_Mandelbulb( in vec3 p, out float trap )
+float SDF_Mandelbulb( in vec3 p, inout vec4 trap )
 {
 	vec3 w = p;
     float m = dot(w,w);
@@ -96,13 +100,15 @@ float SDF_Mandelbulb( in vec3 p, out float trap )
 		#endif
 
         m = dot(w,w);
-		trap = min(m, trap);
+		trap = min(trap, vec4(abs(w), m));
 		
         if(m > 4.0) {
             break;
 		}
     }
 
+	trap.x = m;
+	resColor = trap;
     return 0.25 * log(m) * sqrt(m) / dz;
 }
 
@@ -145,26 +151,25 @@ vec3 SDF_MengerSponge( in vec3 p, inout float trap )
 
 // Return the distance of the closest object in the scene
 vec2 SceneMap( in vec3 pos ) {
-
-	float orbitTrap = 0.0;
-
 	#ifdef MANDELBULB
-	return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
+	vec4 orbitTrap = vec4(0.0);
+	//return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
 
 	// WHY DOES THIS MAKE A DIFFERENCE
-	/*float boundingSphere = SDF_Sphere(pos, 1.15); // Bound the mandelbulb in a sphere. The radius was visually chosen. 1.15 is good
+	float boundingSphere = SDF_Sphere(pos, 1.15); // Bound the mandelbulb in a sphere. The radius was visually chosen. 1.15 is good
 	//float boundingBox = SDF_Box(pos, vec3(1.0)); // 1.1 is good
 
-	if(boundingSphere < 0.2) {
+	if(boundingSphere < 0.7) {
 		return vec2(SDF_Mandelbulb(pos, orbitTrap), 0.0);
 	} else {
 		return vec2(boundingSphere, 0.0);
-	}*/
+	}
 	#endif
 
 	#ifdef MENGER
-	vec3 result = SDF_MengerSponge(pos, orbitTrap);
-	return vec2(result.x, orbitTrap);
+	float orbit;
+	vec3 result = SDF_MengerSponge(pos, orbit);
+	return vec2(result.x, orbit);
 	#endif
 }
 
@@ -177,13 +182,12 @@ vec3 RaymarchScene( in vec3 origin, in vec3 direction, out float numIters ) {
 		return vec3(0.0, -1.0, 0.0); // no intersection
 	}
 	float t = textureRead.y;
-	t = 0.01;
 	
 	int iters;
 	for(int i = 0; i < NUM_RAYMARCH_ITERATIONS; ++i) {
 		//iters = i;
 		vec2 distRes = SceneMap(origin + t * direction);
-		if(distRes.x < 0.005) {
+		if(distRes.x < 0.004) {
 			numIters = float(i);
 			return vec3(t, 1.0, distRes.y); // intersection
 		} else if(t > T_MAX) {
@@ -198,7 +202,7 @@ vec3 RaymarchScene( in vec3 origin, in vec3 direction, out float numIters ) {
 // B-channel is unused at the moment
 vec3 ConemarchScene( in vec3 origin, in vec3 direction, in float coneTanOver2, out float numIters ) {
 	float t;
-	if(bool(u_is_first_pass)) {
+	if(u_pass_counter == 0) {
 		t = 0.01;
 	} else {
 		vec2 textureRead = texture2D(u_previous_conemarch, f_uv).ba;
@@ -215,11 +219,11 @@ vec3 ConemarchScene( in vec3 origin, in vec3 direction, in float coneTanOver2, o
 		vec2 distRes = SceneMap(origin + t * direction);
 		float coneWidth = t * coneTanOver2;
 
-		if(distRes.x < coneWidth /* || distRes.x < 0.005*/) {
+		if(distRes.x < coneWidth /* || distRes.x < 0.004*/) {
 			numIters = float(i);
-			return vec3(t, 1.0, 0.0); // close enough to bailout
+			return vec3(t, 1.0, distRes.x); // close enough to bailout
 		} else if(t > T_MAX) {
-			return vec3(t, -1.0, 0.0);
+			return vec3(t, -1.0, distRes.x);
 		}
 		t += distRes.x; // sphere trace
 	}
@@ -231,7 +235,7 @@ vec3 ConemarchScene( in vec3 origin, in vec3 direction, in float coneTanOver2, o
 
 // Compute the normal of an implicit surface using the gradient method
 vec3 ComputeNormal( in vec3 pos ) {
-	vec2 point = vec2(0.005, 0.0);
+	vec2 point = vec2(0.001, 0.0);
 	float currDist = SceneMap(pos).x;
 	return normalize(
 			   vec3(SceneMap(pos + point.xyy).x - currDist,
@@ -269,21 +273,28 @@ vec3 cosinePalette( in float x ) {
 }
 
 void main() {
+
+	if(u_pass_counter == FINAL_PASS) {
+		float lineWidth = 0.001;
+		if(abs(f_uv.x - 0.33) < lineWidth) {
+			gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return;
+		} else if(abs(f_uv.x - 0.67) < lineWidth) {
+			gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return;
+		}
+	}
+
 	vec2 scrPt = f_uv * 2.0 - 1.0;
-	vec3 cameraPos = normalize(vec3(cos(u_time * 0.5), sin(u_time * 0.125), sin(u_time * 0.5))) * 4.0 * (sin(u_time * 0.25) * 0.5 + 1.5);
-	vec3 refPoint = vec3(0.0);
+	vec3 cameraPos = vec3(u_camera_view[0][3], u_camera_view[1][3], u_camera_view[2][3]); //normalize(vec3(cos(u_time * 0.5), sin(u_time * 0.125), sin(u_time * 0.5))) * 4.0 * (sin(u_time * 0.25) * 0.5 + 1.5);
 
-	// Camera vectors
-	vec3 camLook = refPoint - cameraPos;
-	vec3 camRight = normalize(cross(camLook, vec3(0, 1, 0)));
-	vec3 camUp = -normalize(cross(camLook, camRight));
+	// Unpack camera vectors
+	vec3 camLook = vec3(u_camera_view[0][0], u_camera_view[0][1], u_camera_view[0][2]); //refPoint - cameraPos;
+	vec3 camRight = -vec3(u_camera_view[2][0], u_camera_view[2][1], u_camera_view[2][2]); //normalize(cross(camLook, vec3(0, 1, 0)));
+	vec3 camUp = -vec3(u_camera_view[1][0], u_camera_view[1][1], u_camera_view[1][2]);    //-normalize(cross(camLook, camRight));
 
-	float len = length(camLook);
-	vec3 horzVec = camRight * len * u_tan_fovy_over2 * u_aspect;
-	vec3 vertVec = camUp * len * u_tan_fovy_over2;
-	refPoint += horzVec * scrPt.x + vertVec * scrPt.y;
+	vec3 horzVec = camRight * u_tan_fovy_over2 * u_aspect;
+	vec3 vertVec = camUp * u_tan_fovy_over2;
+	vec3 refPoint = cameraPos + camLook + horzVec * scrPt.x + vertVec * scrPt.y;
 
-	camLook = normalize(camLook);
     vec3 rayDirection = normalize(refPoint - cameraPos);
 
 	// Perform cone/ray marched
@@ -291,8 +302,9 @@ void main() {
 	float numIterations;
 	
 	// Cone/ray-march
-	if(bool(u_is_final_pass)) {
+	if(u_pass_counter == FINAL_PASS) {
 		result = RaymarchScene(cameraPos, rayDirection, numIterations);
+		//gl_FragColor = vec4(vec3(texture2D(u_previous_conemarch, f_uv).rrr), 1); return;
 	} else {
 		vec2 texelSize = vec2(0.5) / u_resolution;
 
@@ -312,28 +324,47 @@ void main() {
 	if(result.y > 0.0) { // if we intersected or bailed out
 		vec3 isectPos = cameraPos + result.x * rayDirection;
 		
-		if(bool(u_is_final_pass)) { // shade
+		if(u_pass_counter == FINAL_PASS) { // shade
 			// normal computation seems to cost ~5 fps. can we do this with less samples
 			vec3 color;
-			vec3 normal = ComputeNormal(isectPos);
-			//float ao = ComputeAO(isectPos, normal);
-			//gl_FragColor = vec4(vec3(ao), 1.0);
-			//gl_FragColor = vec4(normal * ao, 1.0);
-			float lambert = dot(normal, LIGHT_VEC);
-			color = normal;
-			//color = vec3(lambert);
-			//gl_FragColor = vec4(vec3(lambert), 1.0);
-			//gl_FragColor = vec4(normal, 1.0);
-			//gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+			//float lambert = dot(normal, LIGHT_VEC);
 
-			#ifdef MENGER
-			float colorInput = result.z;
-			colorInput = pow(abs(colorInput), 0.5);
-			color = cosinePalette(colorInput);
-			color *= lambert;
-			#endif
+			vec3 normal;
 
-			// Fog
+			if(f_uv.x < 0.33) {
+				// Ao
+				normal = ComputeNormal(isectPos);
+				float ao = ComputeAO(isectPos, normal);
+				color = vec3(ao);
+			} else if(f_uv.x < 0.67) {
+				// Normal
+				normal = ComputeNormal(isectPos);
+				color = normal;
+			} else if(f_uv.x <= 1.0) {
+				// Orbit trap
+				#ifdef MENGER
+				float colorInput = result.z;
+				colorInput = pow(abs(colorInput), 0.5);
+				color = cosinePalette(colorInput);
+				#else
+				
+				#ifdef MANDELBULB
+				float colorInput = resColor.x;
+
+				colorInput = pow(abs(resColor.x), 0.01);
+				color = mix(resColor.xyz, vec3(0.2, 0.5, 0.75), colorInput);
+				color = pow(color, vec3(1.999));
+				color *= 2.0;
+
+				color.r *= (0.5 * cos(u_time) + 0.5) * 4.0;
+				color.g *= (0.5 * sin(u_time * 0.5 + 1.0) + 0.5) * 1.0;
+				color.b *= (0.5 * sin(u_time * 0.125) + 0.5) * 1.0;
+				#endif
+
+				#endif
+			}
+
+			// Fog?
 			//vec3 fogColor = vec3(0.1, 0.12, 0.2);
 			//color = mix(color, fogColor, exp(-0.04 * result.x));
 
@@ -341,9 +372,13 @@ void main() {
 
 		} else { // conemarch and write the necessary parameters for the next iteration
 			gl_FragColor = vec4(0.0, 0.0, result.y, result.x); // write the marched t-value to the texture's alpha channel
+
+			/*if(u_pass_counter == 3) {
+				gl_FragColor = vec4(vec3(result.z), 1); // debug distances for showing stuff
+			}*/
 		}
 	} else { // we either missed or missed in a previous iteration
-		if(bool(u_is_final_pass)) { // final pass so shade the background color
+		if(u_pass_counter == FINAL_PASS) { // final pass so shade the background color
 			//gl_FragColor = vec4(vec3(numIterations / float(NUM_RAYMARCH_ITERATIONS)), 1.0);
 			gl_FragColor = vec4(0.2, 0.3, 0.4, 1.0);
 		} else { // write t-value info

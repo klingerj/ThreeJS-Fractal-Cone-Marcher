@@ -13,6 +13,7 @@ var SphereGeometry = new THREE.SphereGeometry(1, 32, 32);
 var ConeGeometry = new THREE.ConeGeometry(1, 1);
 
 var clock = new THREE.Clock();
+var camera;
 
 var squareRes = 1024;
 export var windowResPow2 = { innerWidth: squareRes, innerHeight: squareRes };
@@ -26,7 +27,7 @@ window.addEventListener('load', function() {
     document.body.appendChild(stats.domElement);
 
     var scene = new THREE.Scene();
-    var camera = new THREE.PerspectiveCamera( 75, windowResPow2.innerWidth/windowResPow2.innerHeight, 0.1, 1000 );
+    camera = new THREE.PerspectiveCamera( 75, windowResPow2.innerWidth/windowResPow2.innerHeight, 0.1, 1000 );
     var renderer = new THREE.WebGLRenderer( { antialias: true } );
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(windowResPow2.innerWidth, windowResPow2.innerHeight);
@@ -64,7 +65,7 @@ window.addEventListener('load', function() {
 
     scene.add(proxyGeometry.group);
 
-    camera.position.set(5, 10, 15);
+    camera.position.set(0, 0, -5);
     camera.lookAt(new THREE.Vector3(0,0,0));
     controls.target.set(0,0,0);
     
@@ -73,7 +74,7 @@ window.addEventListener('load', function() {
     (function tick() {
         controls.update();
         stats.begin();
-        rayMarcher.render(clock);
+        rayMarcher.render(clock, camera);
         stats.end();
         requestAnimationFrame(tick);
     })();
