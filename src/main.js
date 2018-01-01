@@ -65,7 +65,7 @@ window.addEventListener('load', function() {
 
     scene.add(proxyGeometry.group);
 
-    camera.position.set(0, 0, -5);
+    camera.position.set(0, 0, 5);
     camera.lookAt(new THREE.Vector3(0,0,0));
     controls.target.set(0,0,0);
 

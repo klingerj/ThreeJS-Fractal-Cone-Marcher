@@ -33,9 +33,11 @@ uniform int u_fractal_type;
 
 /// Defines
 
-#define NUM_CONEMARCH_ITERATIONS 50
-#define NUM_RAYMARCH_ITERATIONS 90
+#define NUM_CONEMARCH_ITERATIONS 100
+#define NUM_RAYMARCH_ITERATIONS 150
 
+#define MANDELBULB 0
+#define MENGER 1
 #define FINAL_PASS 2 // number of render passes - 1
 
 #define LIGHT_VEC normalize(vec3(1.0, 1.0, 1.0))
@@ -86,6 +88,7 @@ float SDF_Mandelbulb( in vec3 p, inout vec4 trap )
 	vec3 w = p;
     float m = dot(w,w);
     float dz = 1.0;
+	trap = vec4(abs(w),m);
     
     for(int i = 0; i < 4; ++i)
     {
@@ -149,7 +152,6 @@ vec3 SDF_MengerSponge( in vec3 p, inout float trap )
 	for(int m = 0; m < 2; ++m)
 	{
 		// Simple domain distortion, per iteration
-		// Domain distortion for menger
 		//float rotMask = step(mod(float(m), 2.0), 1.0);
 		//p *= (1.0 - rotMask) * MENGER_ROT1 + rotMask * MENGER_ROT2;
 		float scale = (sin(u_time * 0.5) * 0.5 + 0.5) * 1.0 + 1.0;
@@ -173,7 +175,7 @@ vec3 SDF_MengerSponge( in vec3 p, inout float trap )
 
 // Return the distance of the closest object in the scene
 vec2 SceneMap( in vec3 pos ) {
-	if(u_fractal_type == 0) {
+	if(u_fractal_type == MANDELBULB) {
 		vec4 orbitTrap = vec4(0.0);
 
 		float boundingSphere = SDF_Sphere(pos, 1.15); // Bound the mandelbulb in a sphere. The radius was visually chosen. 1.15 is good
@@ -183,7 +185,7 @@ vec2 SceneMap( in vec3 pos ) {
 		} else {
 			return vec2(boundingSphere, 0.0);
 		}
-	} else if(u_fractal_type == 1) {
+	} else if(u_fractal_type == MENGER) {
 		float orbit;
 		vec3 result = SDF_MengerSponge(pos, orbit);
 		return vec2(result.x, orbit);
@@ -204,7 +206,7 @@ vec3 RaymarchScene( in vec3 origin, in vec3 direction, out float numIters ) {
 	for(int i = 0; i < NUM_RAYMARCH_ITERATIONS; ++i) {
 		//iters = i;
 		vec2 distRes = SceneMap(origin + t * direction);
-		if(distRes.x < 0.004) {
+		if(distRes.x < 0.002) {
 			numIters = float(i);
 			return vec3(t, 1.0, distRes.y); // intersection
 		} else if(t > T_MAX) {
@@ -236,7 +238,7 @@ vec3 ConemarchScene( in vec3 origin, in vec3 direction, in float coneTanOver2, o
 		vec2 distRes = SceneMap(origin + t * direction);
 		float coneWidth = t * coneTanOver2;
 
-		if(distRes.x < coneWidth /* || distRes.x < 0.004*/) {
+		if(distRes.x < coneWidth  || distRes.x < 0.004) {
 			numIters = float(i);
 			return vec3(t, 1.0, distRes.x); // close enough to bailout
 		} else if(t > T_MAX) {
@@ -252,7 +254,7 @@ vec3 ConemarchScene( in vec3 origin, in vec3 direction, in float coneTanOver2, o
 
 // Compute the normal of an implicit surface using the gradient method
 vec3 ComputeNormal( in vec3 pos ) {
-	vec2 point = vec2(0.001, 0.0);
+	vec2 point = vec2(0.00001, 0.0);
 	float currDist = SceneMap(pos).x;
 	return normalize(
 			   vec3(SceneMap(pos + point.xyy).x - currDist,
@@ -352,26 +354,23 @@ void main() {
 				normal = ComputeNormal(isectPos);
 				float ao = ComputeAO(isectPos, normal);
 				color = vec3(ao);
-			} else if(f_uv.x < 0.67) { // Normal
-				normal = ComputeNormal(isectPos);
-				color = normal;
-			} else if(f_uv.x <= 1.0) { // Orbit trap
-				if(u_fractal_type == 1) {
+			} else if(f_uv.x < 0.67) { // Orbit trap
+				if(u_fractal_type == MENGER) {
 					float colorInput = result.z;
 					colorInput = pow(abs(colorInput), 0.5);
 					color = cosinePalette(colorInput);
-				} else if(u_fractal_type == 0) {
-					float colorInput = resColor.x;
-					colorInput = pow(abs(resColor.x), 0.01);
+				} else if(u_fractal_type == MANDELBULB) {
+					float colorInput = resColor.r;
+					color = resColor.rgb;
 
-					color = mix(resColor.xyz, vec3(0.2, 0.5, 0.75), colorInput);
-					color = pow(color, vec3(1.999));
-					color *= 2.0;
-
-					color.r *= (0.5 * cos(u_time) + 0.5) * 4.0;
-					color.g *= (0.5 * sin(u_time * 0.5 + 1.0) + 0.5) * 1.0;
-					color.b *= (0.5 * sin(u_time * 0.125) + 0.5) * 1.0;
+					float animate = 0.5 * sin(u_time) + 0.5;
+					
+					color = mix(color, vec3(0.4, 0.4, (0.5 * sin(u_time) + 0.5) * 0.5 + 0.5), smoothstep(0.0, 1.0, color.b));
+					color = mix(color, vec3(0.1, (0.5 * sin(u_time * 3.0) + 0.5) * 0.75, 0.75), smoothstep(0.0, 1.0, color.g));
 				}
+			} else if(f_uv.x <= 1.0) { // Normal
+				normal = ComputeNormal(isectPos);
+				color = normal;
 			}
 
 			gl_FragColor = vec4(color, 1.0);
@@ -379,7 +378,7 @@ void main() {
 		} else { // conemarch and write the necessary parameters for the next iteration
 			gl_FragColor = vec4(0.0, 0.0, result.y, result.x); // write the marched t-value to the texture's alpha channel
 
-			/*if(u_pass_counter == 3) {
+			/*if(u_pass_counter == 1) {
 				gl_FragColor = vec4(vec3(result.z), 1); // debug distances for showing stuff
 			}*/
 		}
